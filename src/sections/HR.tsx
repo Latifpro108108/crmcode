@@ -132,7 +132,7 @@ export function HR({ directory, leaveRequests, onAddMember, onUpdateMemberStatus
         </div>
 
         <div className="module__column">
-          <section className="panel">
+          <section className="panel panel--table">
             <header className="panel__header">
               <h2>Leave Requests</h2>
               <p>Respond quickly with context-aware suggestions.</p>

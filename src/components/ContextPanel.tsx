@@ -3,9 +3,15 @@ import type { AppSection, ShortcutAction } from '../types'
 interface ContextPanelProps {
   section: AppSection
   shortcuts: ShortcutAction[]
+  insight: {
+    title: string
+    description: string
+    checklist?: string[]
+  } | null
+  onDismissInsight: () => void
 }
 
-export function ContextPanel({ section, shortcuts }: ContextPanelProps) {
+export function ContextPanel({ section, shortcuts, insight, onDismissInsight }: ContextPanelProps) {
   return (
     <aside className="context-panel" aria-label={`${section.label} toolkit`}>
       <section className="panel-block">
@@ -32,6 +38,24 @@ export function ContextPanel({ section, shortcuts }: ContextPanelProps) {
           <li>Live chat available 8am – 8pm</li>
         </ul>
       </section>
+      {insight && (
+        <section className="panel-block">
+          <header className="panel__header">
+            <h2>{insight.title}</h2>
+            <p>{insight.description}</p>
+          </header>
+          {insight.checklist && (
+            <ul className="note-list">
+              {insight.checklist.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="ghost-btn ghost-btn--pill" onClick={onDismissInsight}>
+            Got it
+          </button>
+        </section>
+      )}
     </aside>
   )
 }

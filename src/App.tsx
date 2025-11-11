@@ -10,6 +10,8 @@ import { ContextPanel } from './components/ContextPanel'
 import { NotificationDrawer } from './components/NotificationDrawer'
 import { QuickActionModal } from './components/QuickActionModal'
 import { GuidanceBanner } from './components/GuidanceBanner'
+import { AuthScreen } from './components/AuthScreen'
+import { OnboardingGuide, type OnboardingStep } from './components/OnboardingGuide'
 import type {
   AppSection,
   ExpenseCategoryItem,
@@ -18,6 +20,7 @@ import type {
   PipelineColumn,
   QuickActionState,
   QuickActionType,
+  SectionId,
   ShortcutAction,
   TaskItem,
   TeamMember,
@@ -40,6 +43,16 @@ import {
 } from './data/mockData'
 
 const TRIPLE_ENTER_WINDOW = 600
+const STORAGE_KEYS = {
+  user: 'pulsecrm_user',
+  onboarding: 'pulsecrm_onboarding_complete'
+}
+
+interface InsightCard {
+  title: string
+  description: string
+  checklist?: string[]
+}
 
 const sections: AppSection[] = [
   {
@@ -69,6 +82,20 @@ const sections: AppSection[] = [
 ]
 
 export default function App() {
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return Boolean(window.localStorage.getItem(STORAGE_KEYS.user))
+  })
+  const [currentUser, setCurrentUser] = useState<{ name: string; email: string }>(() => {
+    if (typeof window === 'undefined') return { name: '', email: '' }
+    const stored = window.localStorage.getItem(STORAGE_KEYS.user)
+    return stored ? JSON.parse(stored) : { name: '', email: '' }
+  })
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(STORAGE_KEYS.onboarding) === 'true'
+  })
   const [activeSection, setActiveSection] = useState<AppSection>(sections[0])
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [tasks, setTasks] = useState<TaskItem[]>(priorityTasks)
@@ -79,6 +106,93 @@ export default function App() {
   const [quickAction, setQuickAction] = useState<QuickActionState | null>(null)
   const [directory, setDirectory] = useState<TeamMember[]>(hrDirectory)
   const [requests, setRequests] = useState<LeaveRequestItem[]>(leaveRequests)
+  const [insight, setInsight] = useState<InsightCard | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (!isAuthenticated) {
+      window.localStorage.removeItem(STORAGE_KEYS.user)
+      return
+    }
+    window.localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(currentUser))
+  }, [isAuthenticated, currentUser])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem(STORAGE_KEYS.onboarding, String(hasCompletedOnboarding))
+  }, [hasCompletedOnboarding])
+
+  const handleSelectSection = useCallback(
+    (section: AppSection) => {
+      setActiveSection(section)
+      setInsight(null)
+    },
+    []
+  )
+
+  const goToSection = useCallback(
+    (sectionId: SectionId) => {
+      const next = sections.find((section) => section.id === sectionId)
+      if (next) {
+        handleSelectSection(next)
+      }
+    },
+    [handleSelectSection]
+  )
+
+  const handleAuthenticate = useCallback((profile: { name: string; email: string }) => {
+    setCurrentUser(profile)
+    setIsAuthenticated(true)
+    setHasCompletedOnboarding(false)
+  }, [])
+
+  const handleContinueAsGuest = useCallback(() => {
+    setCurrentUser({ name: 'Guest Explorer', email: 'guest@pulsecrm.com' })
+    setIsAuthenticated(true)
+    setHasCompletedOnboarding(false)
+  }, [])
+
+  const handleCompleteOnboarding = useCallback(() => {
+    setHasCompletedOnboarding(true)
+    setInsight({
+      title: 'Tour complete',
+      description: 'Great! You can revisit the guide from the Help menu anytime.',
+      checklist: ['Press Enter ×3 to capture a task', 'Use shortcuts on the right to jump to key flows']
+    })
+  }, [])
+
+  const handleSkipOnboarding = useCallback(() => {
+    setHasCompletedOnboarding(true)
+    setInsight({
+      title: 'Tour skipped',
+      description: 'No worries—open Help later if you want a guided walkthrough.'
+    })
+  }, [])
+
+  const handleDismissInsight = useCallback(() => {
+    setInsight(null)
+  }, [])
+
+  const handleShowHelp = useCallback(() => {
+    if (hasCompletedOnboarding) {
+      setHasCompletedOnboarding(false)
+      return
+    }
+    setInsight({
+      title: 'Workspace navigation tips',
+      description: 'Use the sidebar to switch focus areas and the right panel for context quick wins.',
+      checklist: [
+        'Dashboard: monitor KPIs and urgent tasks',
+        'Sales: keep deals moving stage by stage',
+        'Finance: reconcile spend and invoices',
+        'HR: balance approvals with staffing health'
+      ]
+    })
+  }, [hasCompletedOnboarding])
 
   const guidance = useMemo(() => {
     switch (activeSection.id) {
@@ -120,6 +234,14 @@ export default function App() {
     }
   }, [activeSection.id])
 
+  const openQuickAction = useCallback(
+    (type: QuickActionType) => {
+      setQuickAction({ isOpen: true, type, invokedAt: Date.now() })
+    },
+    []
+  )
+
+
   useEffect(() => {
     let keyCount = 0
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -152,7 +274,7 @@ export default function App() {
 
       if (keyCount === 3) {
         event.preventDefault()
-        setQuickAction({ isOpen: true, type: quickActionType, invokedAt: Date.now() })
+        openQuickAction(quickActionType)
         keyCount = 0
         timer = null
         return
@@ -171,36 +293,60 @@ export default function App() {
         clearTimeout(timer)
       }
     }
-  }, [quickActionType])
+  }, [openQuickAction, quickActionType])
 
-  const contextShortcuts: ShortcutAction[] = useMemo(() => {
-    switch (activeSection.id) {
-      case 'sales':
-        return [
-          { label: 'Add New Lead', action: () => setQuickAction({ isOpen: true, type: 'lead', invokedAt: Date.now() }) },
-          { label: 'View Pipeline Board', action: () => undefined },
-          { label: 'Analyze Win Rate', action: () => undefined }
+  const onboardingSteps = useMemo<OnboardingStep[]>(
+    () => [
+      {
+        id: 'dashboard',
+        title: 'Step 1 · Dashboard overview',
+        section: 'dashboard',
+        summary: 'Pin the KPIs and tasks that drive your morning stand-up.',
+        highlights: [
+          'Drag widgets to prioritize metrics that matter right now.',
+          'Use the quick add form to capture tasks without breaking focus.',
+          'Review recent activity to spot cross-team updates in seconds.'
+        ],
+        cta: 'Show me Sales'
+      },
+      {
+        id: 'sales',
+        title: 'Step 2 · Sales pipeline',
+        section: 'sales',
+        summary: 'Keep deals flowing by focusing on momentum and confidence.',
+        highlights: [
+          'Drag cards between stages to keep forecasts accurate.',
+          'Add confidence scores so leaders can unblock slow deals.',
+          'Use the win-rate chart to coach the team on what works.'
+        ],
+        cta: 'Jump to Finance'
+      },
+      {
+        id: 'finance',
+        title: 'Step 3 · Finance pulse',
+        section: 'finance',
+        summary: 'Track spend, cashflow trends, and invoice reminders in one view.',
+        highlights: [
+          'Log a new expense category when budgets shift mid-quarter.',
+          'Monitor cashflow variance to stay ahead of runway risks.',
+          'Schedule invoice nudges before payment dates slip.'
+        ],
+        cta: 'Review HR'
+      },
+      {
+        id: 'hr',
+        title: 'Step 4 · People operations',
+        section: 'hr',
+        summary: 'Balance wellbeing with staffing coverage before approving leave.',
+        highlights: [
+          'Filter the directory to see availability at a glance.',
+          'Approve or decline leave requests with a single click.',
+          'Log follow-up tasks to keep people programs on track.'
         ]
-      case 'finance':
-        return [
-          { label: 'Record Expense Category', action: () => undefined },
-          { label: 'Download Cashflow Summary', action: () => undefined },
-          { label: 'Schedule Invoice Reminder', action: () => setQuickAction({ isOpen: true, type: 'invoice', invokedAt: Date.now() }) }
-        ]
-      case 'hr':
-        return [
-          { label: 'Create Follow-up Task', action: () => setQuickAction({ isOpen: true, type: 'task', invokedAt: Date.now() }) },
-          { label: 'Approve Leave', action: () => undefined },
-          { label: 'Update Handbook', action: () => undefined }
-        ]
-      default:
-        return [
-          { label: 'Press Enter ×3 for Quick Add', action: () => setQuickAction({ isOpen: true, type: 'task', invokedAt: Date.now() }) },
-          { label: 'Review Priority Tasks', action: () => undefined },
-          { label: 'Share Weekly Report', action: () => undefined }
-        ]
-    }
-  }, [activeSection.id])
+      }
+    ],
+    []
+  )
 
   const handleAddTask = useCallback((payload: Omit<TaskItem, 'id' | 'status'> & { status?: TaskItem['status'] }) => {
     setTasks((prev) => [
@@ -316,20 +462,194 @@ export default function App() {
     setRequests((prev) => prev.map((request) => (request.id === id ? { ...request, status } : request)))
   }, [])
 
+  const handleResetTour = useCallback(() => {
+    setHasCompletedOnboarding(false)
+    setInsight(null)
+  }, [])
+
+  const handleSignOut = useCallback(() => {
+    setIsAuthenticated(false)
+    setCurrentUser({ name: '', email: '' })
+    setAuthMode('login')
+    setTasks(priorityTasks)
+    setLeads(salesLeads)
+    setColumns(pipelineColumns)
+    setInvoices(financeInvoices)
+    setCategories(expenseCategories)
+    setDirectory(hrDirectory)
+    setRequests(leaveRequests)
+    setQuickAction(null)
+    setInsight(null)
+    setIsDrawerOpen(false)
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(STORAGE_KEYS.user)
+      window.localStorage.removeItem(STORAGE_KEYS.onboarding)
+    }
+  }, [])
+
+  const contextShortcuts: ShortcutAction[] = useMemo(() => {
+    switch (activeSection.id) {
+      case 'sales':
+        return [
+          { label: 'Add New Lead', action: () => openQuickAction('lead') },
+          {
+            label: 'View Pipeline Board',
+            action: () => goToSection('sales')
+          },
+          {
+            label: 'Analyze Win Rate',
+            action: () =>
+              setInsight({
+                title: 'Win rate momentum',
+                description: 'Focus on late-stage deals with confidence below 60%.',
+                checklist: [
+                  'Review negotiation-stage deals that stalled last week.',
+                  'Coach owners on next-step commitments before Friday.',
+                  'Share learnings on the team channel after each conversion.'
+                ]
+              })
+          }
+        ]
+      case 'finance':
+        return [
+          {
+            label: 'Record Expense Category',
+            action: () => {
+              if (typeof window === 'undefined') return
+              const label = window.prompt('Expense category name?')
+              if (!label) return
+              const amountInput = window.prompt('How much was spent? (USD)')
+              const amount = amountInput ? Number(amountInput) : 0
+              if (Number.isNaN(amount) || amount <= 0) {
+                setInsight({
+                  title: 'Expense not saved',
+                  description: 'Enter a positive amount next time to log the category.'
+                })
+                return
+              }
+              handleAddExpenseCategory(label.trim(), amount)
+              setInsight({
+                title: 'Expense captured',
+                description: `${label.trim()} logged for $${amount.toLocaleString()}.`,
+                checklist: [
+                  'Tag large purchases with an owner for follow-up.',
+                  'Run the cashflow view to confirm budgets stay on track.'
+                ]
+              })
+            }
+          },
+          {
+            label: 'Download Cashflow Summary',
+            action: () =>
+              setInsight({
+                title: 'Cashflow summary queued',
+                description: 'A shareable PDF will be prepared for your finance channel.',
+                checklist: [
+                  'Check inflow vs outflow variance for the last 30 days.',
+                  'Flag any negative trend to leadership during stand-up.'
+                ]
+              })
+          },
+          { label: 'Schedule Invoice Reminder', action: () => openQuickAction('invoice') }
+        ]
+      case 'hr':
+        return [
+          { label: 'Create Follow-up Task', action: () => openQuickAction('task') },
+          {
+            label: 'Approve Leave',
+            action: () => {
+              const pending = requests.find((request) => request.status === 'Pending')
+              if (!pending) {
+                setInsight({
+                  title: 'No pending requests',
+                  description: 'All leave requests are up to date.'
+                })
+                return
+              }
+              handleUpdateLeaveStatus(pending.id, 'Approved')
+              setInsight({
+                title: 'Leave approved',
+                description: `${pending.employee} has been notified.`,
+                checklist: ['Update the team rota and share coverage notes.']
+              })
+            }
+          },
+          {
+            label: 'Update Handbook',
+            action: () =>
+              setInsight({
+                title: 'Handbook refresh',
+                description: 'Document expectations around hybrid availability and wellbeing days.',
+                checklist: ['Draft policy updates', 'Collect feedback from managers', 'Publish to employee hub']
+              })
+          }
+        ]
+      default:
+        return [
+          { label: 'Press Enter ×3 for Quick Add', action: () => openQuickAction('task') },
+          {
+            label: 'Review Priority Tasks',
+            action: () =>
+              setInsight({
+                title: 'Priority pacing',
+                description: 'Tackle overdue tasks first, then work through the fresh queue.',
+                checklist: ['Filter by due date', 'Delegate blockers', 'Celebrate wins in weekly recap']
+              })
+          },
+          {
+            label: 'Share Weekly Report',
+            action: () =>
+              setInsight({
+                title: 'Weekly report template',
+                description: 'Summarize top metrics, pipeline health, and staffing insights.',
+                checklist: ['Highlight top 3 wins', 'Call out at-risk deals', 'List staffing actions for next week']
+              })
+          }
+        ]
+    }
+  }, [activeSection.id, goToSection, handleAddExpenseCategory, handleUpdateLeaveStatus, openQuickAction, requests])
+
   const closeQuickAction = useCallback(() => {
     setQuickAction(null)
   }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated || hasCompletedOnboarding || onboardingSteps.length === 0) {
+      return
+    }
+    goToSection(onboardingSteps[0].section)
+  }, [goToSection, hasCompletedOnboarding, isAuthenticated, onboardingSteps])
+
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen
+        mode={authMode}
+        onSwitchMode={setAuthMode}
+        onAuthenticate={handleAuthenticate}
+        onContinueAsGuest={handleContinueAsGuest}
+      />
+    )
+  }
+
+  const showOnboarding = !hasCompletedOnboarding && onboardingSteps.length > 0
 
   return (
     <div className="app-shell">
       <Sidebar
         sections={sections}
         activeSection={activeSection}
-        onSelectSection={setActiveSection}
+        onSelectSection={handleSelectSection}
         onNotificationsClick={() => setIsDrawerOpen(true)}
       />
       <div className="main-content" role="main">
-        <TopBar activeSection={activeSection} onOpenNotifications={() => setIsDrawerOpen(true)} />
+        <TopBar
+          activeSection={activeSection}
+          onOpenNotifications={() => setIsDrawerOpen(true)}
+          userName={currentUser.name}
+          onShowHelp={handleShowHelp}
+          onResetTour={handleResetTour}
+          onSignOut={handleSignOut}
+        />
         <GuidanceBanner section={activeSection} focus={guidance} />
         <div className="content-grid" aria-live="polite">
           {activeSection.id === 'dashboard' && (
@@ -375,7 +695,7 @@ export default function App() {
               onUpdateLeaveStatus={handleUpdateLeaveStatus}
             />
           )}
-          <ContextPanel section={activeSection} shortcuts={contextShortcuts} />
+          <ContextPanel section={activeSection} shortcuts={contextShortcuts} insight={insight} onDismissInsight={handleDismissInsight} />
         </div>
       </div>
       <NotificationDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
@@ -396,6 +716,14 @@ export default function App() {
           closeQuickAction()
         }}
       />
+      {showOnboarding && (
+        <OnboardingGuide
+          steps={onboardingSteps}
+          onNavigate={goToSection}
+          onComplete={handleCompleteOnboarding}
+          onSkip={handleSkipOnboarding}
+        />
+      )}
     </div>
   )
 }

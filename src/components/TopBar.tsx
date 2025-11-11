@@ -1,12 +1,27 @@
-import { RiMenuLine, RiNotification3Line, RiQuestionLine, RiSearchLine } from 'react-icons/ri'
+import { RiLogoutBoxLine, RiMenuLine, RiNotification3Line, RiQuestionLine, RiRefreshLine, RiSearchLine } from 'react-icons/ri'
 import type { AppSection } from '../types'
 
 interface TopBarProps {
   activeSection: AppSection
   onOpenNotifications: () => void
+  userName: string
+  onShowHelp: () => void
+  onResetTour: () => void
+  onSignOut: () => void
 }
 
-export function TopBar({ activeSection, onOpenNotifications }: TopBarProps) {
+const getInitials = (name: string) => {
+  if (!name) return 'JD'
+  return name
+    .split(' ')
+    .map((part) => part.trim()[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+}
+
+export function TopBar({ activeSection, onOpenNotifications, userName, onShowHelp, onResetTour, onSignOut }: TopBarProps) {
   return (
     <header className="topbar" role="banner">
       <div className="topbar__left">
@@ -36,12 +51,22 @@ export function TopBar({ activeSection, onOpenNotifications }: TopBarProps) {
           <RiNotification3Line aria-hidden size={20} />
           Notifications
         </button>
-        <button type="button" className="topbar__action" aria-label="Get help">
+        <button type="button" className="topbar__action" aria-label="Get help" onClick={onShowHelp}>
           <RiQuestionLine aria-hidden size={20} />
           Help
         </button>
+        <button type="button" className="topbar__action" onClick={onResetTour}>
+          <RiRefreshLine aria-hidden size={20} />
+          Reset tour
+        </button>
+        <button type="button" className="topbar__action" onClick={onSignOut}>
+          <RiLogoutBoxLine aria-hidden size={20} />
+          Sign out
+        </button>
         <button type="button" className="topbar__avatar" aria-haspopup="menu" aria-expanded="false">
-          <span className="topbar__avatar-image" aria-hidden>JD</span>
+          <span className="topbar__avatar-image" aria-hidden>
+            {getInitials(userName)}
+          </span>
           <span className="visually-hidden">Open profile menu</span>
         </button>
       </div>
